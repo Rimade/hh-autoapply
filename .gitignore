@@ -1,0 +1,6 @@
+node_modules/
+.env
+cover-letter.txt
+cookies/
+data/
+*.log
