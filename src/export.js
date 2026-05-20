@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { openDatabase } = require('./db');
 const { ensureDir } = require('./utils');
+const { latencyDays } = require('./learning');
 
 function escapeCsv(value) {
 	const s = String(value ?? '');
@@ -24,8 +25,8 @@ function formatSignals(raw) {
 function listVacanciesForExport(db) {
 	return db
 		.prepare(
-			`SELECT vacancy_id, title, company, applied_at, last_seen_at, outcome, score,
-              score_signals, response_type, url, fail_reason, status
+			`SELECT vacancy_id, title, company, applied_at, last_seen_at, outcome, outcome_at,
+              score, score_signals, response_type, url, fail_reason, status
        FROM vacancies
        ORDER BY COALESCE(applied_at, last_seen_at, '') DESC`,
 		)
@@ -40,6 +41,8 @@ const CSV_HEADERS = [
 	'last_seen_at',
 	'status',
 	'outcome',
+	'outcome_at',
+	'latency_days',
 	'score',
 	'score_signals',
 	'response_type',
@@ -60,6 +63,8 @@ function vacanciesToCsv(rows) {
 				row.last_seen_at,
 				row.status,
 				row.outcome,
+				row.outcome_at,
+				latencyDays(row.applied_at, row.outcome_at) ?? '',
 				row.score,
 				formatSignals(row.score_signals),
 				row.response_type,

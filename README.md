@@ -111,8 +111,12 @@ npm run stats
 
 - Только размеченные outcomes (не `pending`)
 - **Decay** по возрасту отклика: `<30д=1.0` · `30–90=0.7` · `90–180=0.4` · `>180=0.2`
-- **conf** — decay-weighted positive rate × насыщение выборки (не автоправило в ranking)
-- `n >= LEARNING_MIN_SAMPLES` (по умолчанию 5)
+- **conf** — reliability estimate, не truth (ranking не меняется автоматически)
+- **Пары сигналов** — `remote + typescript` и т.д. (`PAIRWISE_MIN_SAMPLES=3`)
+- **Latency** — дни от отклика до разметки (`outcome_at` при `npm run outcomes`)
+- **Timeline** — последние исходы с `+Nд`
+
+`n >= LEARNING_MIN_SAMPLES` (по умолчанию 5) для одиночных сигналов.
 
 ### CSV export
 

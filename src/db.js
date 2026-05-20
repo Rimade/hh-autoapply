@@ -45,6 +45,9 @@ function migrateSchema(db) {
 	if (!names.has('score_signals')) {
 		db.exec(`ALTER TABLE vacancies ADD COLUMN score_signals TEXT`);
 	}
+	if (!names.has('outcome_at')) {
+		db.exec(`ALTER TABLE vacancies ADD COLUMN outcome_at TEXT`);
+	}
 }
 
 function openDatabase(dbPath) {
@@ -248,8 +251,10 @@ function getStats(db) {
 
 /** v4: обновление исхода отклика (replied | ignored | rejected | interview) */
 function setVacancyOutcome(db, vacancyId, outcome) {
-	db.prepare(`UPDATE vacancies SET outcome = ? WHERE vacancy_id = ?`).run(
+	const now = new Date().toISOString();
+	db.prepare(`UPDATE vacancies SET outcome = ?, outcome_at = ? WHERE vacancy_id = ?`).run(
 		outcome,
+		now,
 		String(vacancyId),
 	);
 }

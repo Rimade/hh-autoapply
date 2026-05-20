@@ -1,6 +1,6 @@
 const readline = require('readline');
 const { openDatabase, setVacancyOutcome, getStats } = require('./db');
-const { printSignalReport } = require('./learning');
+const { printAnalyticsReport } = require('./learning');
 
 const OUTCOME_MAP = {
 	1: 'replied',
@@ -109,9 +109,11 @@ function runStats(config) {
 	console.log(`Успешных откликов: ${stats.appliedTotal}`);
 	console.log(`С ответом (replied): ${stats.repliedTotal}`);
 
-	printSignalReport(db, {
+	printAnalyticsReport(db, {
 		minSamples: Number(config.learningMinSamples || 5),
+		pairwiseMinSamples: Number(config.pairwiseMinSamples || 3),
 		useDecay: config.learningDecay !== false,
+		timelineLimit: Number(config.timelineLimit || 12),
 	});
 	db.close();
 }
