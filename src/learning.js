@@ -304,6 +304,7 @@ function printAnalyticsReport(db, opts = {}) {
 module.exports = {
 	OUTCOMES,
 	LABELED_OUTCOMES,
+	parseSignals,
 	freshnessWeight,
 	computeConfidence,
 	latencyDays,

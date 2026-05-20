@@ -10,7 +10,8 @@
 		"outcomes": "node index.js outcomes",
 		"stats": "node index.js stats",
 		"export": "node index.js export",
-		"cohorts": "node index.js cohorts"
+		"cohorts": "node index.js cohorts",
+		"insights": "node index.js insights"
 	},
 	"keywords": [],
 	"author": "",

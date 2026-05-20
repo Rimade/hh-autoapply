@@ -130,6 +130,27 @@ npm run cohorts
 
 Pairwise `conf` в stats с **sparsity penalty** (`n/(n+2)`), чтобы `3/3` не выглядел как истина.
 
+### Insights (P2.2–P2.3)
+
+```bash
+npm run insights
+```
+
+- **Exposure** — откликов до первого positive; pos% по дню недели и часу (локальное время)
+- **Saturation** — компании seen×N, повторные apply, доминирующие сигналы за окно
+
+### Diversity guard (P2.4, в `apply`)
+
+```env
+DIVERSITY_GUARD=true
+MAX_COMPANY_APPLIES_PER_DAY=2
+MAX_SIGNAL_APPLIES_PER_DAY=4
+```
+
+Лимит «похожих» откликов в день (компания + primary signal). Отключить: `DIVERSITY_GUARD=false`.
+
+Рекомендуемый порядок: `cohorts` → `insights` → `stats` → `export`.
+
 ### CSV export
 
 ```bash

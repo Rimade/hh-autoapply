@@ -28,6 +28,7 @@ const {
 	getStats,
 } = require('./db');
 const { shouldApplyByScore } = require('./score');
+const { canApplyByDiversity } = require('./diversity');
 const { randomDelay } = require('./utils');
 
 const TEST_HINT_RE = /тест|анкет|опрос|задани[ея]|вопрос/i;
@@ -259,6 +260,12 @@ async function runAutoApply(config) {
 
 	console.log(`Persistent-профиль: ${profileDir}`);
 
+	if (config.diversityEnabled) {
+		console.log(
+			`Diversity guard: компания ≤${config.maxCompanyAppliesPerDay}/день, сигнал ≤${config.maxSignalAppliesPerDay}/день`,
+		);
+	}
+
 	const context = await launchPersistentBrowser({
 		userDataDir,
 		legacyStoragePath,
@@ -352,6 +359,17 @@ async function runAutoApply(config) {
 				if (skipTests && item.requiresTest) {
 					recordVacancyResult(db, item, { status: 'skip', reason: 'requires_test_hint' });
 					console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (requires_test_hint)`);
+					await randomDelay(300, 1200);
+					continue;
+				}
+
+				const diversityGate = canApplyByDiversity(db, item, config);
+				if (!diversityGate.ok) {
+					recordVacancyResult(db, item, { status: 'skip', reason: diversityGate.reason });
+					const detail = diversityGate.detail ? ` ${diversityGate.detail}` : '';
+					console.log(
+						`  [${i + 1}/${items.length}] skip — ${item.id} (${diversityGate.reason}${detail})`,
+					);
 					await randomDelay(300, 1200);
 					continue;
 				}
