@@ -21,6 +21,7 @@ const config = {
 	skipTests: process.env.SKIP_VACANCIES_WITH_TESTS !== 'false',
 	coverLetter: loadCoverLetter(),
 	humanBrowseChance: Number(process.env.HUMAN_BROWSE_CHANCE || 0.06),
+	humanIdleChance: Number(process.env.HUMAN_IDLE_CHANCE || 0.03),
 	slowMo: Number(process.env.SLOW_MO || 0),
 	useSystemChrome: process.env.USE_SYSTEM_CHROME === 'true',
 };

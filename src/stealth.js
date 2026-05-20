@@ -9,6 +9,16 @@ const STEALTH_INIT_SCRIPT = () => {
     window.chrome = { runtime: {} };
   }
 
+  Object.defineProperty(navigator, 'hardwareConcurrency', {
+    get: () => 8,
+    configurable: true,
+  });
+
+  Object.defineProperty(navigator, 'deviceMemory', {
+    get: () => 8,
+    configurable: true,
+  });
+
   Object.defineProperty(navigator, 'languages', {
     get: () => ['ru-RU', 'ru', 'en-US', 'en'],
     configurable: true,
