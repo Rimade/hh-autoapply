@@ -103,13 +103,24 @@ npm run outcomes
 
 После откликов в БД остаётся `outcome=pending`. Ручная разметка — ground truth до любого GPT.
 
-### Статистика по сигналам
+### Статистика по сигналам (decay + confidence)
 
 ```bash
 npm run stats
 ```
 
-Показывает корреляцию `score_signals` с исходами только при `n >= LEARNING_MIN_SAMPLES` (по умолчанию 5).
+- Только размеченные outcomes (не `pending`)
+- **Decay** по возрасту отклика: `<30д=1.0` · `30–90=0.7` · `90–180=0.4` · `>180=0.2`
+- **conf** — decay-weighted positive rate × насыщение выборки (не автоправило в ranking)
+- `n >= LEARNING_MIN_SAMPLES` (по умолчанию 5)
+
+### CSV export
+
+```bash
+npm run export
+```
+
+Файл `data/hh-export-YYYY-MM-DD.csv` — для Excel, pivot tables, ручного анализа. Свой путь: `EXPORT_CSV_PATH=...`
 
 ### Шаблонные письма (без GPT)
 

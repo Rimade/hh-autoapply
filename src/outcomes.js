@@ -109,7 +109,10 @@ function runStats(config) {
 	console.log(`Успешных откликов: ${stats.appliedTotal}`);
 	console.log(`С ответом (replied): ${stats.repliedTotal}`);
 
-	printSignalReport(db, { minSamples: Number(config.learningMinSamples || 5) });
+	printSignalReport(db, {
+		minSamples: Number(config.learningMinSamples || 5),
+		useDecay: config.learningDecay !== false,
+	});
 	db.close();
 }
 

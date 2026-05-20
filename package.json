@@ -8,7 +8,8 @@
 		"apply": "node index.js apply",
 		"start": "node index.js apply",
 		"outcomes": "node index.js outcomes",
-		"stats": "node index.js stats"
+		"stats": "node index.js stats",
+		"export": "node index.js export"
 	},
 	"keywords": [],
 	"author": "",

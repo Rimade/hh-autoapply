@@ -5,6 +5,7 @@ const { loginInteractive } = require('./src/auth');
 const { runAutoApply } = require('./src/apply');
 const { loadCoverLetter, loadTemplateLetterPath } = require('./src/config');
 const { runOutcomesCli, runStats } = require('./src/outcomes');
+const { runExport } = require('./src/export');
 const { parseKeywordList } = require('./src/score');
 const { SafetyStopError } = require('./src/captcha');
 
@@ -29,6 +30,8 @@ const config = {
 	templateLetterPath: loadTemplateLetterPath(),
 	outcomesBatchSize: Number(process.env.OUTCOMES_BATCH_SIZE || 25),
 	learningMinSamples: Number(process.env.LEARNING_MIN_SAMPLES || 5),
+	learningDecay: process.env.LEARNING_DECAY !== 'false',
+	exportCsvPath: process.env.EXPORT_CSV_PATH || '',
 	humanBrowseChance: Number(process.env.HUMAN_BROWSE_CHANCE || 0.06),
 	humanIdleChance: Number(process.env.HUMAN_IDLE_CHANCE || 0.03),
 	navigationEntropyChance: Number(process.env.NAVIGATION_ENTROPY_CHANCE || 0.08),
@@ -72,11 +75,17 @@ async function main() {
 		process.exit(0);
 	}
 
+	if (command === 'export') {
+		runExport(config);
+		process.exit(0);
+	}
+
 	console.log('Использование:');
 	console.log('  npm run login    — войти на hh.ru (persistent-профиль)');
 	console.log('  npm run apply    — откликаться по поиску из .env');
 	console.log('  npm run outcomes — разметить исходы откликов (ground truth)');
-	console.log('  npm run stats    — корреляция score_signals с исходами');
+	console.log('  npm run stats    — сигналы с decay и confidence');
+	console.log('  npm run export   — CSV для Excel / pivot tables');
 	process.exit(1);
 }
 
