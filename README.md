@@ -1,16 +1,16 @@
 # hh-autoapply
 
-Автоотклики на [hh.ru](https://hh.ru) через Playwright с **persistent-профилем** (как у обычного браузера).
+Stateful worker для автооткликов на [hh.ru](https://hh.ru): persistent profile, SQLite, cooldowns, human behavior, block detection.
 
-## Почему persistent profile, а не только cookies
+## Архитектура
 
-`storageState` хранит в основном cookies. **Persistent context** (`user-data/`) сохраняет:
-
-- cookies и localStorage;
-- IndexedDB;
-- историю сессии в профиле Chromium.
-
-Так HH реже видит «новый браузер каждый запуск».
+```txt
+browser identity (persistent profile + fixed fingerprint)
++ state persistence (SQLite)
++ behavior simulation
++ block detection
++ graceful stop
+```
 
 ## Быстрый старт
 
@@ -19,75 +19,65 @@ cp .env.example .env
 cp cover-letter.example.txt cover-letter.txt
 
 npm run login
-# войди на hh.ru, затем Enter
-
 npm run apply
 ```
 
-### Миграция со старой версии
+## v3 — что нового
 
-Если есть `cookies/hh-storage.json`, при первом `apply` cookies **один раз** импортируются в `user-data/hh-profile`.
-Рекомендуется после этого снова `npm run login` для стабильной сессии.
+### Persistent «личность» браузера
+
+- `user-data/hh-profile/.hh-profile.json` — **фиксированные** viewport, CPU, RAM (не рандом каждый запуск)
+- Согласованный stealth init script
+
+### SQLite (`data/hh.db`)
+
+- Таблицы: `vacancies`, `companies`, `runs`
+- Миграция из `data/applied.json` при первом запуске
+
+### Cooldowns
+
+| Правило | ENV |
+|---------|-----|
+| Пауза между откликами в одну компанию | `COMPANY_COOLDOWN_HOURS=24` |
+| Повтор failed через N дней | `FAILED_RETRY_DAYS=3` |
+| Лимит в час | `HOURLY_LIMIT=12` |
+| Лимит в сутки | `DAILY_LIMIT=40` |
+
+### Ranking (опционально)
+
+```env
+SCORE_ENABLED=true
+SCORE_THRESHOLD=0
+POSITIVE_KEYWORDS=typescript,javascript,nest,react
+NEGATIVE_KEYWORDS=php,python,java,qa,devops
+```
+
+### Navigation entropy
+
+`NAVIGATION_ENTROPY_CHANCE=0.08` — иногда страница компании, просмотр вакансии или пауза на выдаче.
 
 ## Структура
 
 ```
-hh-autoapply/
-├── index.js
-├── src/
-│   ├── browser.js    # persistent profile + lock
-│   ├── stealth.js    # anti-automation init script
-│   ├── captcha.js    # капча / блокировка → стоп
-│   ├── human.js      # скролл, паузы, «просмотр» вакансии
-│   ├── auth.js
-│   ├── apply.js
-│   ├── hh-response.js
-│   └── ...
-├── user-data/        # профиль браузера (gitignore)
-└── data/applied.json
+src/
+  browser.js      — persistent context + lock
+  profile-meta.js — фиксированный fingerprint
+  db.js           — SQLite + cooldowns
+  score.js        — ranking
+  captcha.js      — stop on block
+  human.js        — поведение
+  apply.js        — основной цикл
 ```
 
-## Переменные (.env)
+## Безопасность
 
-| Переменная | Описание |
-|------------|----------|
-| `USER_DATA_DIR` | Папка persistent-профиля |
-| `HH_SEARCH_URL` | URL поиска с фильтрами |
-| `MAX_APPLICATIONS` | Лимит откликов за запуск |
-| `MAX_PAGES` | Страниц выдачи (1 → 2 → 3…) |
-| `DELAY_MIN_MS` / `DELAY_MAX_MS` | Случайная пауза между откликами |
-| `HUMAN_BROWSE_CHANCE` | Шанс открыть вакансию без отклика (≈0.06) |
-| `HUMAN_IDLE_CHANCE` | Редкая пауза 20–40 сек между действиями |
-| `HEADLESS` | `false` рекомендуется |
-| `USE_SYSTEM_CHROME` | `true` — установленный Chrome |
-| `COVER_LETTER_FILE` | Сопроводительное письмо |
+- Один процесс на профиль (lock + PID)
+- Не запускай два `apply` параллельно
+- 15–30 релевантных откликов/день лучше 100 шаблонных
+- `USE_SYSTEM_CHROME=true` рекомендуется
 
-## Безопасность и лимиты
+## Roadmap v4
 
-1. **Не запускай два `apply`/`login` одновременно** — один профиль, file-lock (снимается при Ctrl+C и если PID мёртв).
-2. **10–30 релевантных откликов/день**, не сотни.
-3. При капче скрипт остановится с `⛔ Остановка` — зайди вручную, `npm run login`.
-4. Не шарь папку `user-data/` — это твой аккаунт HH.
-
-## Сценарии отклика HH
-
-| flow | Описание |
-|------|----------|
-| `modal` | Модалка + обязательное письмо + «Откликнуться» |
-| `inline` | «Резюме доставлено» / форма внизу + «Отправить» |
-| `post_delivered` | Уже откликнулся, опционально доп. письмо |
-| `instant` | Отклик без письма |
-
-## Команды
-
-| Команда | Действие |
-|---------|----------|
-| `npm run login` | Вход, профиль сохраняется в `user-data/` |
-| `npm run apply` | Автоотклики по выдаче |
-
-## Roadmap (v3+)
-
-- SQLite вместо JSON
-- AI cover letter по тексту вакансии
-- Retry queue
-- Telegram / dashboard
+- AI cover letter (3–5 предложений, не «HR essay»)
+- Dashboard / Telegram bot
+- Distributed workers

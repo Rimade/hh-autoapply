@@ -14,8 +14,21 @@ const {
 	humanReadVacancy,
 	maybeBrowseVacancy,
 	maybeIdlePause,
+	maybeNavigationEntropy,
 } = require('./human');
-const { randomDelay, loadJson, saveJson } = require('./utils');
+const {
+	openDatabase,
+	migrateFromAppliedJson,
+	startRun,
+	finishRun,
+	canApplyVacancy,
+	canApplyCompany,
+	checkRateLimits,
+	recordVacancyResult,
+	getStats,
+} = require('./db');
+const { shouldApplyByScore } = require('./score');
+const { randomDelay } = require('./utils');
 
 const TEST_HINT_RE = /тест|анкет|опрос|задани[ея]|вопрос/i;
 const ASSESSMENT_URL_RE =
@@ -47,10 +60,16 @@ async function extractVacancies(page) {
 			const href = titleLink?.href || '';
 			const text = card.innerText || '';
 			const id = card.getAttribute('data-vacancy-id') || href.match(/vacancy\/(\d+)/)?.[1] || href;
+			const employer =
+				card.querySelector('[data-qa="vacancy-serp__vacancy-employer"]') ||
+				card.querySelector('a[data-qa="vacancy-serp__vacancy-employer"]');
 
 			return {
 				id: String(id),
 				href,
+				title: (titleLink?.textContent || '').trim(),
+				company: (employer?.textContent || '').trim(),
+				companyHref: employer?.href || '',
 				requiresTest: testHintRe.test(text),
 			};
 		});
@@ -136,7 +155,7 @@ async function tryApplyOnPage(page, { skipTests, coverLetter }) {
 
 	const submitResult = await handleResponseAfterClick(page, coverLetter);
 	if (submitResult.ok) {
-		return { status: 'ok', reason: submitResult.flow || undefined };
+		return { status: 'ok', flow: submitResult.flow, reason: submitResult.flow };
 	}
 
 	if (submitResult.reason) {
@@ -188,6 +207,7 @@ async function runAutoApply(config) {
 		searchUrl,
 		userDataDir,
 		legacyStoragePath,
+		dbPath,
 		appliedDbPath,
 		maxApplications,
 		delayMinMs,
@@ -198,8 +218,15 @@ async function runAutoApply(config) {
 		coverLetter,
 		humanBrowseChance,
 		humanIdleChance,
+		navigationEntropyChance,
 		slowMo,
 		useSystemChrome,
+		companyCooldownHours,
+		failedRetryDays,
+		dailyLimit,
+		hourlyLimit,
+		scoreEnabled,
+		scoreThreshold,
 	} = config;
 
 	const fs = require('fs');
@@ -210,8 +237,10 @@ async function runAutoApply(config) {
 		throw new Error(`Профиль не найден: ${profileDir}\nСначала выполни: npm run login`);
 	}
 
-	const appliedDb = loadJson(appliedDbPath, { ids: [] });
-	const appliedIds = new Set(appliedDb.ids);
+	const db = openDatabase(dbPath);
+	migrateFromAppliedJson(db, appliedDbPath);
+	const run = startRun(db);
+	let blocksDetected = 0;
 
 	if (coverLetter) {
 		console.log(`Сопроводительное письмо: ${coverLetter.length} символов`);
@@ -237,13 +266,14 @@ async function runAutoApply(config) {
 	const searchPage = pages.length > 0 ? pages[0] : await context.newPage();
 
 	let appliedCount = 0;
+	let stopRun = false;
 
 	try {
 		if (!(await isLoggedIn(searchPage))) {
 			throw new Error('Сессия устарела. Запусти снова: npm run login');
 		}
 
-		for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
+		for (let pageIndex = 0; pageIndex < maxPages && !stopRun; pageIndex++) {
 			if (appliedCount >= maxApplications) {
 				console.log(`\nЛимит откликов за сессию (${maxApplications}) достигнут.`);
 				break;
@@ -280,17 +310,44 @@ async function runAutoApply(config) {
 
 				const item = items[i];
 
-				if (appliedIds.has(item.id)) {
-					console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (already_applied)`);
+				const rateCheck = checkRateLimits(db, { dailyLimit, hourlyLimit });
+				if (!rateCheck.ok) {
+					console.log(`  Лимит: ${rateCheck.reason}. Остановка на сегодня.`);
+					stopRun = true;
+					break;
+				}
+
+				const vacancyGate = canApplyVacancy(db, item.id, failedRetryDays);
+				if (!vacancyGate.ok) {
+					console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (${vacancyGate.reason})`);
+					continue;
+				}
+
+				const companyGate = canApplyCompany(db, item.company, companyCooldownHours);
+				if (!companyGate.ok) {
+					recordVacancyResult(db, item, { status: 'skip', reason: companyGate.reason });
+					console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (${companyGate.reason})`);
+					continue;
+				}
+
+				const scoreGate = shouldApplyByScore(item, config);
+				item.score = scoreGate.score;
+				if (!scoreGate.ok) {
+					recordVacancyResult(db, item, { status: 'skip', reason: scoreGate.reason });
+					console.log(
+						`  [${i + 1}/${items.length}] skip — ${item.id} (${scoreGate.reason}, score=${scoreGate.score})`,
+					);
 					continue;
 				}
 
 				if (skipTests && item.requiresTest) {
-					appliedIds.add(item.id);
+					recordVacancyResult(db, item, { status: 'skip', reason: 'requires_test_hint' });
 					console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (requires_test_hint)`);
 					await randomDelay(300, 1200);
 					continue;
 				}
+
+				await maybeNavigationEntropy(context, searchPage, item, navigationEntropyChance);
 
 				const browsed = await maybeBrowseVacancy(context, item, humanBrowseChance);
 				if (browsed) {
@@ -305,17 +362,21 @@ async function runAutoApply(config) {
 					result = await applyVacancy(context, item, { skipTests, coverLetter });
 				} catch (err) {
 					if (err instanceof SafetyStopError) {
+						blocksDetected++;
 						throw err;
 					}
 					result = { status: 'fail', reason: err.message?.slice(0, 80) || 'error' };
 				}
 
-				if (shouldPersistVacancy(result)) {
-					appliedIds.add(item.id);
+				if (shouldPersistVacancy(result) || result.status === 'fail') {
+					recordVacancyResult(db, item, result);
 				}
 
 				const reason = result.reason ? ` (${result.reason})` : '';
-				console.log(`  [${i + 1}/${items.length}] ${result.status} — ${item.id}${reason}`);
+				const scoreTxt = item.score != null ? ` score=${item.score}` : '';
+				console.log(
+					`  [${i + 1}/${items.length}] ${result.status} — ${item.id}${reason}${scoreTxt}`,
+				);
 
 				if (result.status === 'ok') {
 					appliedCount++;
@@ -349,10 +410,12 @@ async function runAutoApply(config) {
 			await randomDelay(delayMinMs, delayMaxMs);
 		}
 
-		saveJson(appliedDbPath, { ids: [...appliedIds], updatedAt: new Date().toISOString() });
+		finishRun(db, run.runId, { applicationsSent: appliedCount, blocksDetected });
+		const stats = getStats(db);
 
 		console.log(`\nГотово. Новых откликов за сессию: ${appliedCount}`);
-		console.log(`Всего в базе: ${appliedIds.size}`);
+		console.log(`Всего успешных в базе: ${stats.appliedTotal}`);
+		db.close();
 	} finally {
 		await closePersistentBrowser(context);
 	}

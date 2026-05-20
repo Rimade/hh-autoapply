@@ -4,11 +4,15 @@ const path = require('path');
 const { loginInteractive } = require('./src/auth');
 const { runAutoApply } = require('./src/apply');
 const { loadCoverLetter } = require('./src/config');
+const { parseKeywordList } = require('./src/score');
 const { SafetyStopError } = require('./src/captcha');
+
+const scoreEnabled = process.env.SCORE_ENABLED === 'true';
 
 const config = {
 	userDataDir: process.env.USER_DATA_DIR || path.join('user-data', 'hh-profile'),
 	legacyStoragePath: process.env.STORAGE_STATE_PATH || path.join('cookies', 'hh-storage.json'),
+	dbPath: process.env.DATABASE_PATH || path.join('data', 'hh.db'),
 	appliedDbPath: process.env.APPLIED_DB_PATH || path.join('data', 'applied.json'),
 	searchUrl:
 		process.env.HH_SEARCH_URL ||
@@ -22,8 +26,21 @@ const config = {
 	coverLetter: loadCoverLetter(),
 	humanBrowseChance: Number(process.env.HUMAN_BROWSE_CHANCE || 0.06),
 	humanIdleChance: Number(process.env.HUMAN_IDLE_CHANCE || 0.03),
+	navigationEntropyChance: Number(process.env.NAVIGATION_ENTROPY_CHANCE || 0.08),
 	slowMo: Number(process.env.SLOW_MO || 0),
 	useSystemChrome: process.env.USE_SYSTEM_CHROME === 'true',
+	companyCooldownHours: Number(process.env.COMPANY_COOLDOWN_HOURS || 24),
+	failedRetryDays: Number(process.env.FAILED_RETRY_DAYS || 3),
+	dailyLimit: Number(process.env.DAILY_LIMIT || 40),
+	hourlyLimit: Number(process.env.HOURLY_LIMIT || 12),
+	scoreEnabled,
+	scoreThreshold: Number(process.env.SCORE_THRESHOLD || 0),
+	positiveKeywords: parseKeywordList(
+		process.env.POSITIVE_KEYWORDS || 'typescript,javascript,node,nest,react',
+	),
+	negativeKeywords: parseKeywordList(
+		process.env.NEGATIVE_KEYWORDS || 'php,python,java,1c,qa,devops',
+	),
 };
 
 const command = process.argv[2] || 'apply';
