@@ -9,7 +9,8 @@
 		"start": "node index.js apply",
 		"outcomes": "node index.js outcomes",
 		"stats": "node index.js stats",
-		"export": "node index.js export"
+		"export": "node index.js export",
+		"cohorts": "node index.js cohorts"
 	},
 	"keywords": [],
 	"author": "",

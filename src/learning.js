@@ -36,11 +36,22 @@ function freshnessWeight(appliedAtIso, nowMs = Date.now()) {
 	return 0.2;
 }
 
-function computeConfidence(effectiveSamples, weightedPositiveRate, minSamples) {
+function computeConfidence(
+	effectiveSamples,
+	weightedPositiveRate,
+	minSamples,
+	{ rawSamples = 0, sparsityPenalty = false } = {},
+) {
 	if (effectiveSamples < minSamples) return null;
 
 	const sampleFactor = Math.min(1, effectiveSamples / (minSamples * 2));
-	return Math.round(sampleFactor * weightedPositiveRate * 100) / 100;
+	let confidence = sampleFactor * weightedPositiveRate;
+
+	if (sparsityPenalty && rawSamples > 0) {
+		confidence *= rawSamples / (rawSamples + 2);
+	}
+
+	return Math.round(confidence * 100) / 100;
 }
 
 function latencyDays(appliedAtIso, outcomeAtIso) {
@@ -98,7 +109,7 @@ function accumulateSignalStats(rows, { useDecay, getKeys }) {
 	return byKey;
 }
 
-function insightsFromBuckets(byKey, minSamples) {
+function insightsFromBuckets(byKey, minSamples, { sparsityPenalty = false } = {}) {
 	const insights = [];
 
 	for (const [key, counts] of Object.entries(byKey)) {
@@ -112,7 +123,10 @@ function insightsFromBuckets(byKey, minSamples) {
 			samples: counts.samples,
 			effectiveSamples: Math.round(counts.effectiveSamples * 10) / 10,
 			positiveRate: Math.round(weightedPositiveRate * 100),
-			confidence: computeConfidence(counts.effectiveSamples, weightedPositiveRate, minSamples),
+			confidence: computeConfidence(counts.effectiveSamples, weightedPositiveRate, minSamples, {
+				rawSamples: counts.samples,
+				sparsityPenalty,
+			}),
 		});
 	}
 
@@ -127,10 +141,7 @@ function getSignalInsights(db, { minSamples = 5, useDecay = true } = {}) {
 		getKeys: (signals) => signals,
 	});
 
-	return insightsFromBuckets(byKey, minSamples).map((row) => ({
-		signal: row.key,
-		...row,
-	}));
+	return insightsFromBuckets(byKey, minSamples).map((row) => ({ signal: row.key, ...row }));
 }
 
 function getPairwiseInsights(db, { minSamples = 3, useDecay = true } = {}) {
@@ -140,7 +151,7 @@ function getPairwiseInsights(db, { minSamples = 3, useDecay = true } = {}) {
 		getKeys: pairsFromSignals,
 	});
 
-	return insightsFromBuckets(byKey, minSamples).map((row) => ({
+	return insightsFromBuckets(byKey, minSamples, { sparsityPenalty: true }).map((row) => ({
 		pair: row.key,
 		...row,
 	}));
@@ -223,7 +234,7 @@ function printPairwiseReport(db, opts) {
 	const insights = getPairwiseInsights(db, { minSamples: pairwiseMinSamples, useDecay });
 
 	console.log(`\n── Пары сигналов (n >= ${pairwiseMinSamples}) ──`);
-	console.log('Комбинации на одной вакансии (remote + typescript и т.д.)\n');
+	console.log('Комбинации на одной вакансии. conf с sparsity penalty (3/3 не = 1.0)\n');
 
 	if (!insights.length) {
 		console.log('Мало парных наблюдений — нужно больше размеченных откликов с 2+ сигналами.\n');

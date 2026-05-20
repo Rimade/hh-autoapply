@@ -118,6 +118,18 @@ npm run stats
 
 `n >= LEARNING_MIN_SAMPLES` (по умолчанию 5) для одиночных сигналов.
 
+### Cohort analysis (P2)
+
+```bash
+npm run cohorts
+```
+
+- **Funnel** — seen → ok → labeled → positive
+- **Weekly** — отклики по неделям + pos% среди размеченных
+- **Score buckets** — `<0`, `0–19`, `20–39`, `40+` и reply rate по корзинам
+
+Pairwise `conf` в stats с **sparsity penalty** (`n/(n+2)`), чтобы `3/3` не выглядел как истина.
+
 ### CSV export
 
 ```bash
