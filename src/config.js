@@ -19,6 +19,11 @@ function loadCoverLetter() {
   return '';
 }
 
+function loadTemplateLetterPath() {
+  return process.env.COVER_LETTER_TEMPLATE_FILE || 'cover-letter-template.txt';
+}
+
 module.exports = {
   loadCoverLetter,
+  loadTemplateLetterPath,
 };

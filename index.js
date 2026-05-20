@@ -3,7 +3,8 @@ require('dotenv').config();
 const path = require('path');
 const { loginInteractive } = require('./src/auth');
 const { runAutoApply } = require('./src/apply');
-const { loadCoverLetter } = require('./src/config');
+const { loadCoverLetter, loadTemplateLetterPath } = require('./src/config');
+const { runOutcomesCli, runStats } = require('./src/outcomes');
 const { parseKeywordList } = require('./src/score');
 const { SafetyStopError } = require('./src/captcha');
 
@@ -23,7 +24,11 @@ const config = {
 	headless: process.env.HEADLESS || 'false',
 	maxPages: Number(process.env.MAX_PAGES || 3),
 	skipTests: process.env.SKIP_VACANCIES_WITH_TESTS !== 'false',
-	coverLetter: loadCoverLetter(),
+	staticCoverLetter: loadCoverLetter(),
+	useTemplateLetter: process.env.USE_TEMPLATE_LETTER === 'true',
+	templateLetterPath: loadTemplateLetterPath(),
+	outcomesBatchSize: Number(process.env.OUTCOMES_BATCH_SIZE || 25),
+	learningMinSamples: Number(process.env.LEARNING_MIN_SAMPLES || 5),
 	humanBrowseChance: Number(process.env.HUMAN_BROWSE_CHANCE || 0.06),
 	humanIdleChance: Number(process.env.HUMAN_IDLE_CHANCE || 0.03),
 	navigationEntropyChance: Number(process.env.NAVIGATION_ENTROPY_CHANCE || 0.08),
@@ -57,9 +62,21 @@ async function main() {
 		process.exit(0);
 	}
 
+	if (command === 'outcomes') {
+		await runOutcomesCli(config);
+		process.exit(0);
+	}
+
+	if (command === 'stats') {
+		runStats(config);
+		process.exit(0);
+	}
+
 	console.log('Использование:');
-	console.log('  npm run login   — войти на hh.ru (persistent-профиль)');
-	console.log('  npm run apply   — откликаться по поиску из .env');
+	console.log('  npm run login    — войти на hh.ru (persistent-профиль)');
+	console.log('  npm run apply    — откликаться по поиску из .env');
+	console.log('  npm run outcomes — разметить исходы откликов (ground truth)');
+	console.log('  npm run stats    — корреляция score_signals с исходами');
 	process.exit(1);
 }
 

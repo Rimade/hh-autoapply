@@ -91,10 +91,44 @@ src/
 - `NEGATIVE_DOMINATES=true` — любой negative keyword или hard-skip → пропуск
 - Лучше пропустить, чем откликнуться «куда попало»
 
-## Roadmap v4 — feedback loop
+## v4 — feedback loop (реализовано)
 
-1. **Outcome tracking** — `pending` → `replied` / `ignored` / `rejected` / `interview` (поле уже в БД)
-2. **AI letters** — base template + адаптация 2–3 предложений под стек (не GPT на всё письмо)
-3. **Learn from outcomes** — поднять score паттернам, которые дают ответы
+### Разметка исходов
+
+```bash
+npm run outcomes
+```
+
+Коды: `1` replied · `2` ignored · `3` rejected · `4` interview · `s` skip · `q` выход
+
+После откликов в БД остаётся `outcome=pending`. Ручная разметка — ground truth до любого GPT.
+
+### Статистика по сигналам
+
+```bash
+npm run stats
+```
+
+Показывает корреляцию `score_signals` с исходами только при `n >= LEARNING_MIN_SAMPLES` (по умолчанию 5).
+
+### Шаблонные письма (без GPT)
+
+```bash
+cp cover-letter-template.example.txt cover-letter-template.txt
+```
+
+В `.env`:
+
+```env
+USE_TEMPLATE_LETTER=true
+```
+
+Плейсхолдеры: `{{STACK_LINE}}`, `{{TITLE}}`, `{{COMPANY}}`, `{{COMPANY_LINE}}`. Стек детектится из заголовка и описания вакансии.
+
+### Дальше (не в коде)
+
+- Light sync с перепиской HH (осторожно, без aggressive polling)
+- Micro-AI только как тонкая правка шаблона, не генерация всего письма
+- Автоподстройка score только при достаточной выборке + decay
 
 Не трогаем Canvas/WebGL deep spoof — system Chrome + stable profile безопаснее.

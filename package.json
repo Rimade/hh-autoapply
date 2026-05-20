@@ -1,19 +1,21 @@
 {
-  "name": "hh-autoapply",
-  "version": "1.0.0",
-  "description": "Автоотклики на hh.ru через Playwright (браузер, сессия, сопроводительное письмо)",
-  "main": "index.js",
-  "scripts": {
-    "login": "node index.js login",
-    "apply": "node index.js apply",
-    "start": "node index.js apply"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "dotenv": "^17.4.2",
-    "playwright": "^1.60.0"
-  }
+	"name": "hh-autoapply",
+	"version": "1.0.0",
+	"description": "Автоотклики на hh.ru через Playwright (браузер, сессия, сопроводительное письмо)",
+	"main": "index.js",
+	"scripts": {
+		"login": "node index.js login",
+		"apply": "node index.js apply",
+		"start": "node index.js apply",
+		"outcomes": "node index.js outcomes",
+		"stats": "node index.js stats"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"type": "commonjs",
+	"dependencies": {
+		"dotenv": "^17.4.2",
+		"playwright": "^1.60.0"
+	}
 }

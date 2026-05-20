@@ -116,7 +116,9 @@ async function clickResponseButton(page) {
 	return { clicked: false, already: false };
 }
 
-async function tryApplyOnPage(page, { skipTests, coverLetter }) {
+const { resolveCoverLetter } = require('./letter');
+
+async function tryApplyOnPage(page, { skipTests, config, item }) {
 	await assertSafePage(page);
 
 	if (isAssessmentUrl(page.url())) {
@@ -154,6 +156,7 @@ async function tryApplyOnPage(page, { skipTests, coverLetter }) {
 
 	await assertSafePage(page);
 
+	const coverLetter = resolveCoverLetter(config, item, pageText.slice(0, 5000));
 	const submitResult = await handleResponseAfterClick(page, coverLetter);
 	if (submitResult.ok) {
 		return { status: 'ok', flow: submitResult.flow, reason: submitResult.flow };
@@ -192,7 +195,11 @@ async function applyVacancy(context, item, options) {
 		await dismissOverlays(workPage);
 		await assertSafePage(workPage);
 		await humanReadVacancy(workPage);
-		return await tryApplyOnPage(workPage, options);
+		return await tryApplyOnPage(workPage, {
+			skipTests: options.skipTests,
+			config: options.config,
+			item,
+		});
 	} catch (err) {
 		if (err instanceof SafetyStopError) {
 			throw err;
@@ -216,7 +223,6 @@ async function runAutoApply(config) {
 		headless,
 		maxPages,
 		skipTests,
-		coverLetter,
 		humanBrowseChance,
 		humanIdleChance,
 		navigationEntropyChance,
@@ -243,12 +249,12 @@ async function runAutoApply(config) {
 	const run = startRun(db);
 	let blocksDetected = 0;
 
-	if (coverLetter) {
-		console.log(`Сопроводительное письмо: ${coverLetter.length} символов`);
+	if (config.useTemplateLetter) {
+		console.log(`Письма: шаблон (${config.templateLetterPath}) + стек из вакансии`);
+	} else if (config.staticCoverLetter) {
+		console.log(`Сопроводительное письмо: ${config.staticCoverLetter.length} символов (статичное)`);
 	} else {
-		console.log(
-			'Письмо не задано (COVER_LETTER_FILE). Вакансии с обязательным письмом будут пропущены.',
-		);
+		console.log('Письмо не задано. Включи USE_TEMPLATE_LETTER=true или COVER_LETTER_FILE.');
 	}
 
 	console.log(`Persistent-профиль: ${profileDir}`);
@@ -362,7 +368,7 @@ async function runAutoApply(config) {
 				let result;
 				try {
 					await humanMicroPause();
-					result = await applyVacancy(context, item, { skipTests, coverLetter });
+					result = await applyVacancy(context, item, { skipTests, config });
 				} catch (err) {
 					if (err instanceof SafetyStopError) {
 						blocksDetected++;
