@@ -67,11 +67,11 @@ function scoreVacancy(item, config) {
 }
 
 function shouldApplyByScore(item, config) {
-	if (!config.scoreEnabled) {
-		return { ok: true, score: 0, signals: [] };
-	}
-
 	const { score, signals, hardSkip } = scoreVacancy(item, config);
+
+	if (!config.scoreEnabled) {
+		return { ok: true, score, signals };
+	}
 
 	if (hardSkip) {
 		return { ok: false, score, signals, reason: hardSkip };

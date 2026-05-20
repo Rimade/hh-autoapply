@@ -15,12 +15,30 @@ browser identity (persistent profile + fixed fingerprint)
 ## Быстрый старт
 
 ```bash
+npm install
+npx playwright install chromium
+
 cp .env.example .env
 cp cover-letter.example.txt cover-letter.txt
+# отредактируй HH_SEARCH_URL и письмо в .env / cover-letter.txt
 
-npm run login
+npm run login    # один раз или после 403/503
 npm run apply
 ```
+
+## Ежедневный цикл (достаточно для самостоятельной работы)
+
+| Шаг | Команда | Зачем |
+|-----|---------|--------|
+| 1 | `npm run login` | если 403/503, «сессия устарела» или давно не заходил |
+| 2 | `npm run apply` | отклики (лимиты и cooldowns в `.env`) |
+| 3 | `npm run outcomes` | раз в 2–7 дней: разметить pending → replied/ignored/… |
+| 4 | `npm run cohorts` → `insights` → `stats` | аналитика (когда есть размеченные исходы) |
+| 5 | `npm run export` | CSV в Excel при необходимости |
+
+Рекомендуется в `.env`: `SCORE_ENABLED=true`, `USE_SYSTEM_CHROME=true`, `NEGATIVE_DOMINATES=true`.
+
+**Не запускай два `apply` параллельно** (lock на профиль).
 
 ## v3 — что нового
 

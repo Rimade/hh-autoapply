@@ -24,6 +24,7 @@ const {
 	canApplyVacancy,
 	canApplyCompany,
 	checkRateLimits,
+	upsertVacancySeen,
 	recordVacancyResult,
 	getStats,
 } = require('./db');
@@ -323,6 +324,7 @@ async function runAutoApply(config) {
 				}
 
 				const item = items[i];
+				upsertVacancySeen(db, item);
 
 				const rateCheck = checkRateLimits(db, { dailyLimit, hourlyLimit });
 				if (!rateCheck.ok) {
