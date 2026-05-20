@@ -31,7 +31,20 @@ const {
 } = require('./db');
 const { shouldApplyByScore } = require('./score');
 const { canApplyByDiversity } = require('./diversity');
-const { randomDelay } = require('./utils');
+const { randomDelay, sleep } = require('./utils');
+
+async function maybeBatchCooldown(appliedCount, config) {
+	const every = Number(config.cooldownEveryN || 0);
+	if (every <= 0 || appliedCount <= 0 || appliedCount % every !== 0) return;
+
+	const min = Number(config.cooldownMinMs || 50_000);
+	const max = Number(config.cooldownMaxMs || 90_000);
+	const ms = min + Math.floor(Math.random() * (max - min + 1));
+	console.log(
+		`  … пауза ${Math.round(ms / 1000)} сек после ${appliedCount} откликов (снижаем риск 503)`,
+	);
+	await sleep(ms);
+}
 
 const TEST_HINT_RE = /тест|анкет|опрос|задани[ея]|вопрос/i;
 const ASSESSMENT_URL_RE =
@@ -281,7 +294,11 @@ async function runAutoApply(config) {
 		useSystemChrome: config.useSystemChrome,
 	});
 
-	attachSafetyWatchers(context);
+	attachSafetyWatchers(context, {
+		wait503Ms: config.http503WaitMs,
+		soft503WindowMs: config.http503WindowMs,
+		max503InWindow: config.http503MaxInWindow,
+	});
 
 	const pages = context.pages();
 	const searchPage = pages.length > 0 ? pages[0] : await context.newPage();
@@ -425,6 +442,7 @@ async function runAutoApply(config) {
 
 				if (result.status === 'ok') {
 					appliedCount++;
+					await maybeBatchCooldown(appliedCount, config);
 					await randomDelay(delayMinMs, delayMaxMs);
 				} else {
 					await randomDelay(1000, 2800);
