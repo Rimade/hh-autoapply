@@ -76,8 +76,25 @@ src/
 - 15–30 релевантных откликов/день лучше 100 шаблонных
 - `USE_SYSTEM_CHROME=true` рекомендуется
 
-## Roadmap v4
+## Слои системы
 
-- AI cover letter (3–5 предложений, не «HR essay»)
-- Dashboard / Telegram bot
-- Distributed workers
+| Слой | Модули |
+|------|--------|
+| Identity | `browser.js`, `profile-meta.js`, `stealth.js` |
+| Behavior | `human.js`, cooldowns |
+| Decision | `score.js` (negative dominates) |
+| Storage | `db.js` + `outcome` для feedback loop |
+
+## Ranking (`SCORE_ENABLED=true`)
+
+- Встроенные сигналы: `remote`, `hybrid`, `agency`, `office_only`, `relocation`…
+- `NEGATIVE_DOMINATES=true` — любой negative keyword или hard-skip → пропуск
+- Лучше пропустить, чем откликнуться «куда попало»
+
+## Roadmap v4 — feedback loop
+
+1. **Outcome tracking** — `pending` → `replied` / `ignored` / `rejected` / `interview` (поле уже в БД)
+2. **AI letters** — base template + адаптация 2–3 предложений под стек (не GPT на всё письмо)
+3. **Learn from outcomes** — поднять score паттернам, которые дают ответы
+
+Не трогаем Canvas/WebGL deep spoof — system Chrome + stable profile безопаснее.

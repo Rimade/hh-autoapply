@@ -35,6 +35,7 @@ const config = {
 	hourlyLimit: Number(process.env.HOURLY_LIMIT || 12),
 	scoreEnabled,
 	scoreThreshold: Number(process.env.SCORE_THRESHOLD || 0),
+	negativeDominates: process.env.NEGATIVE_DOMINATES !== 'false',
 	positiveKeywords: parseKeywordList(
 		process.env.POSITIVE_KEYWORDS || 'typescript,javascript,node,nest,react',
 	),

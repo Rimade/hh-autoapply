@@ -35,10 +35,23 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 `;
 
+function migrateSchema(db) {
+	const cols = db.prepare('PRAGMA table_info(vacancies)').all();
+	const names = new Set(cols.map((c) => c.name));
+
+	if (!names.has('outcome')) {
+		db.exec(`ALTER TABLE vacancies ADD COLUMN outcome TEXT DEFAULT 'pending'`);
+	}
+	if (!names.has('score_signals')) {
+		db.exec(`ALTER TABLE vacancies ADD COLUMN score_signals TEXT`);
+	}
+}
+
 function openDatabase(dbPath) {
 	ensureDir(dbPath);
 	const db = new DatabaseSync(dbPath);
 	db.exec(SCHEMA);
+	migrateSchema(db);
 	return db;
 }
 
@@ -178,12 +191,14 @@ function recordVacancyResult(db, item, result) {
 	const status = result.status === 'ok' ? 'ok' : result.status === 'skip' ? 'skip' : 'fail';
 	const responseType = status === 'ok' ? result.flow || result.reason || null : null;
 	const failReason = status === 'fail' ? result.reason || null : null;
+	const outcome = status === 'ok' ? 'pending' : null;
+	const scoreSignals = item.signals?.length ? JSON.stringify(item.signals) : null;
 
 	db.prepare(
 		`INSERT INTO vacancies (
       vacancy_id, title, company, url, status, applied_at, last_seen_at, last_failed_at,
-      requires_test, response_type, fail_reason, score
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      requires_test, response_type, fail_reason, score, outcome, score_signals
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(vacancy_id) DO UPDATE SET
       title = excluded.title,
       company = excluded.company,
@@ -194,7 +209,9 @@ function recordVacancyResult(db, item, result) {
       last_failed_at = CASE WHEN excluded.status = 'fail' THEN excluded.last_failed_at ELSE vacancies.last_failed_at END,
       response_type = excluded.response_type,
       fail_reason = excluded.fail_reason,
-      score = excluded.score`,
+      score = excluded.score,
+      outcome = CASE WHEN excluded.status = 'ok' THEN COALESCE(vacancies.outcome, 'pending') ELSE vacancies.outcome END,
+      score_signals = excluded.score_signals`,
 	).run(
 		String(item.id),
 		item.title || null,
@@ -208,6 +225,8 @@ function recordVacancyResult(db, item, result) {
 		responseType,
 		failReason,
 		item.score ?? null,
+		outcome,
+		scoreSignals,
 	);
 
 	if (status === 'ok' && item.company) {
@@ -223,7 +242,16 @@ function recordVacancyResult(db, item, result) {
 
 function getStats(db) {
 	const total = db.prepare('SELECT COUNT(*) AS c FROM vacancies WHERE status = ?').get('ok');
-	return { appliedTotal: total?.c || 0 };
+	const replied = db.prepare(`SELECT COUNT(*) AS c FROM vacancies WHERE outcome = 'replied'`).get();
+	return { appliedTotal: total?.c || 0, repliedTotal: replied?.c || 0 };
+}
+
+/** v4: обновление исхода отклика (replied | ignored | rejected | interview) */
+function setVacancyOutcome(db, vacancyId, outcome) {
+	db.prepare(`UPDATE vacancies SET outcome = ? WHERE vacancy_id = ?`).run(
+		outcome,
+		String(vacancyId),
+	);
 }
 
 module.exports = {
@@ -236,5 +264,6 @@ module.exports = {
 	checkRateLimits,
 	upsertVacancySeen,
 	recordVacancyResult,
+	setVacancyOutcome,
 	getStats,
 };

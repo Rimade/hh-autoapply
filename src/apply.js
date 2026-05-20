@@ -70,6 +70,7 @@ async function extractVacancies(page) {
 				title: (titleLink?.textContent || '').trim(),
 				company: (employer?.textContent || '').trim(),
 				companyHref: employer?.href || '',
+				snippet: text.slice(0, 600),
 				requiresTest: testHintRe.test(text),
 			};
 		});
@@ -332,10 +333,12 @@ async function runAutoApply(config) {
 
 				const scoreGate = shouldApplyByScore(item, config);
 				item.score = scoreGate.score;
+				item.signals = scoreGate.signals || [];
 				if (!scoreGate.ok) {
 					recordVacancyResult(db, item, { status: 'skip', reason: scoreGate.reason });
+					const sig = item.signals.length ? ` [${item.signals.join(', ')}]` : '';
 					console.log(
-						`  [${i + 1}/${items.length}] skip — ${item.id} (${scoreGate.reason}, score=${scoreGate.score})`,
+						`  [${i + 1}/${items.length}] skip — ${item.id} (${scoreGate.reason}, score=${scoreGate.score})${sig}`,
 					);
 					continue;
 				}
