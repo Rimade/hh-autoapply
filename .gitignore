@@ -2,5 +2,6 @@ node_modules/
 .env
 cover-letter.txt
 cookies/
+user-data/
 data/
 *.log

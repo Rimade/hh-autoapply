@@ -1,25 +1,12 @@
-const { chromium } = require('playwright');
 const { isLoggedIn } = require('./auth');
+const { launchPersistentBrowser, closePersistentBrowser, isProfileInitialized, resolveUserDataDir } = require('./browser');
+const { SafetyStopError, assertSafePage } = require('./captcha');
 const { handleResponseAfterClick } = require('./hh-response');
+const { humanizeSearchPage, humanMicroPause, maybeBrowseVacancy } = require('./human');
 const { randomDelay, loadJson, saveJson } = require('./utils');
 
 const TEST_HINT_RE = /тест|анкет|опрос|задани[ея]|вопрос/i;
 const ASSESSMENT_URL_RE = /\/assessment\/|\/applicant\/tests\/|\/questionnaire\/|\/employer\/test|vacancy_response.*test/i;
-
-async function createContext(browser, storagePath) {
-  if (!require('fs').existsSync(storagePath)) {
-    throw new Error(
-      `Нет файла сессии: ${storagePath}\nСначала выполни: npm run login`
-    );
-  }
-
-  return browser.newContext({
-    storageState: storagePath,
-    locale: 'ru-RU',
-    timezoneId: 'Europe/Moscow',
-    viewport: { width: 1280, height: 900 },
-  });
-}
 
 function isAssessmentUrl(url) {
   return ASSESSMENT_URL_RE.test(url || '');
@@ -75,7 +62,6 @@ async function clickResponseButton(page) {
     '[data-qa="vacancy-response-link-top"]',
     '[data-qa="vacancy-response-button"]',
     '[data-qa="vacancy-serp__vacancy_response"]',
-    '[data-qa="vacancy-response-link-top"]',
   ];
 
   for (const selector of selectors) {
@@ -86,6 +72,7 @@ async function clickResponseButton(page) {
         return { clicked: false, already: true };
       }
       await btn.scrollIntoViewIfNeeded().catch(() => {});
+      await humanMicroPause();
       await btn.click({ timeout: 10000 });
       await page.waitForTimeout(1500);
       return { clicked: true, already: false };
@@ -101,6 +88,8 @@ async function clickResponseButton(page) {
 }
 
 async function tryApplyOnPage(page, { skipTests, coverLetter }) {
+  await assertSafePage(page);
+
   if (isAssessmentUrl(page.url())) {
     return { status: 'skip', reason: 'requires_test' };
   }
@@ -125,15 +114,16 @@ async function tryApplyOnPage(page, { skipTests, coverLetter }) {
     return { status: 'skip', reason: 'no_button' };
   }
 
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(2000 + Math.floor(Math.random() * 800));
 
   if (isAssessmentUrl(page.url())) {
     return { status: 'skip', reason: 'requires_test' };
   }
 
+  await assertSafePage(page);
+
   const submitResult = await handleResponseAfterClick(page, coverLetter);
   if (submitResult.ok) {
-    const flow = submitResult.flow ? ` (${submitResult.flow})` : '';
     return { status: 'ok', reason: submitResult.flow || undefined };
   }
 
@@ -148,7 +138,6 @@ async function tryApplyOnPage(page, { skipTests, coverLetter }) {
       'unknown_flow',
       'modal_not_submitted',
       'inline_not_submitted',
-      'unknown_flow',
     ]);
     return {
       status: asSkip.has(submitResult.reason) ? 'skip' : 'fail',
@@ -156,14 +145,10 @@ async function tryApplyOnPage(page, { skipTests, coverLetter }) {
     };
   }
 
-  if (isAssessmentUrl(page.url())) {
-    return { status: 'skip', reason: 'requires_test' };
-  }
-
   return { status: 'fail', reason: 'response_failed' };
 }
 
-async function applyVacancy(context, item, { skipTests, coverLetter }) {
+async function applyVacancy(context, item, options) {
   if (!item.href) {
     return { status: 'skip', reason: 'no_link' };
   }
@@ -173,8 +158,12 @@ async function applyVacancy(context, item, { skipTests, coverLetter }) {
   try {
     await workPage.goto(item.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await dismissOverlays(workPage);
-    return await tryApplyOnPage(workPage, { skipTests, coverLetter });
+    await assertSafePage(workPage);
+    return await tryApplyOnPage(workPage, options);
   } catch (err) {
+    if (err instanceof SafetyStopError) {
+      throw err;
+    }
     return { status: 'fail', reason: err.message?.slice(0, 80) || 'error' };
   } finally {
     await workPage.close().catch(() => {});
@@ -184,7 +173,8 @@ async function applyVacancy(context, item, { skipTests, coverLetter }) {
 async function runAutoApply(config) {
   const {
     searchUrl,
-    storagePath,
+    userDataDir,
+    legacyStoragePath,
     appliedDbPath,
     maxApplications,
     delayMinMs,
@@ -193,7 +183,20 @@ async function runAutoApply(config) {
     maxPages,
     skipTests,
     coverLetter,
+    humanBrowseChance,
+    slowMo,
+    useSystemChrome,
   } = config;
+
+  const fs = require('fs');
+  const profileDir = resolveUserDataDir(userDataDir);
+  const hasLegacy = legacyStoragePath && fs.existsSync(legacyStoragePath);
+
+  if (!isProfileInitialized(profileDir) && !hasLegacy) {
+    throw new Error(
+      `Профиль не найден: ${profileDir}\nСначала выполни: npm run login`
+    );
+  }
 
   const appliedDb = loadJson(appliedDbPath, { ids: [] });
   const appliedIds = new Set(appliedDb.ids);
@@ -206,120 +209,139 @@ async function runAutoApply(config) {
     );
   }
 
-  const browser = await chromium.launch({
-    headless: headless === 'true',
-    slowMo: 30,
+  console.log(`Persistent-профиль: ${profileDir}`);
+
+  const context = await launchPersistentBrowser({
+    userDataDir,
+    legacyStoragePath,
+    headless,
+    slowMo,
+    useSystemChrome: config.useSystemChrome,
   });
 
-  const context = await createContext(browser, storagePath);
-  const searchPage = await context.newPage();
-
-  if (!(await isLoggedIn(searchPage))) {
-    await browser.close();
-    throw new Error('Сессия устарела. Запусти снова: npm run login');
-  }
+  const pages = context.pages();
+  const searchPage = pages.length > 0 ? pages[0] : await context.newPage();
 
   let appliedCount = 0;
 
-  for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
-    if (appliedCount >= maxApplications) {
-      console.log(`\nЛимит откликов за сессию (${maxApplications}) достигнут.`);
-      break;
+  try {
+    if (!(await isLoggedIn(searchPage))) {
+      throw new Error('Сессия устарела. Запусти снова: npm run login');
     }
 
-    const url = buildSearchPageUrl(searchUrl, pageIndex);
-
-    console.log(`\n── Страница ${pageIndex + 1} из ${maxPages} ──`);
-    console.log(url);
-
-    const navigated = await openSearchPage(searchPage, url, pageIndex > 0);
-    if (!navigated) {
-      console.log('Не удалось открыть страницу выдачи.');
-      break;
-    }
-
-    const items = await extractVacancies(searchPage);
-
-    if (items.length === 0) {
-      console.log('Вакансии на странице не найдены — дальше страниц нет.');
-      break;
-    }
-
-    console.log(`Найдено карточек: ${items.length}`);
-
-    for (let i = 0; i < items.length; i++) {
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
       if (appliedCount >= maxApplications) {
-        console.log(`  Лимит ${maxApplications} откликов — остаток страницы пропускаем.`);
+        console.log(`\nЛимит откликов за сессию (${maxApplications}) достигнут.`);
         break;
       }
-      const item = items[i];
 
-      if (appliedIds.has(item.id)) {
-        console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (already_applied)`);
-        continue;
+      const url = buildSearchPageUrl(searchUrl, pageIndex);
+
+      console.log(`\n── Страница ${pageIndex + 1} из ${maxPages} ──`);
+      console.log(url);
+
+      const navigated = await openSearchPage(searchPage, url, pageIndex > 0);
+      if (!navigated) {
+        console.log('Не удалось открыть страницу выдачи.');
+        break;
       }
 
-      if (skipTests && item.requiresTest) {
-        appliedIds.add(item.id);
-        console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (requires_test_hint)`);
-        await randomDelay(300, 800);
-        continue;
+      await assertSafePage(searchPage);
+      await humanizeSearchPage(searchPage);
+
+      const items = await extractVacancies(searchPage);
+
+      if (items.length === 0) {
+        console.log('Вакансии на странице не найдены — дальше страниц нет.');
+        break;
       }
 
-      let result;
-      try {
-        result = await applyVacancy(context, item, { skipTests, coverLetter });
-      } catch (err) {
-        result = { status: 'fail', reason: err.message?.slice(0, 80) || 'error' };
+      console.log(`Найдено карточек: ${items.length}`);
+
+      for (let i = 0; i < items.length; i++) {
+        if (appliedCount >= maxApplications) {
+          console.log(`  Лимит ${maxApplications} откликов — остаток страницы пропускаем.`);
+          break;
+        }
+
+        const item = items[i];
+
+        if (appliedIds.has(item.id)) {
+          console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (already_applied)`);
+          continue;
+        }
+
+        if (skipTests && item.requiresTest) {
+          appliedIds.add(item.id);
+          console.log(`  [${i + 1}/${items.length}] skip — ${item.id} (requires_test_hint)`);
+          await randomDelay(300, 1200);
+          continue;
+        }
+
+        const browsed = await maybeBrowseVacancy(context, item, humanBrowseChance);
+        if (browsed) {
+          console.log(`  [${i + 1}/${items.length}] browse — ${item.id} (human_behavior)`);
+          await randomDelay(delayMinMs, delayMaxMs);
+          continue;
+        }
+
+        let result;
+        try {
+          await humanMicroPause();
+          result = await applyVacancy(context, item, { skipTests, coverLetter });
+        } catch (err) {
+          if (err instanceof SafetyStopError) {
+            throw err;
+          }
+          result = { status: 'fail', reason: err.message?.slice(0, 80) || 'error' };
+        }
+
+        if (shouldPersistVacancy(result)) {
+          appliedIds.add(item.id);
+        }
+
+        const reason = result.reason ? ` (${result.reason})` : '';
+        console.log(`  [${i + 1}/${items.length}] ${result.status} — ${item.id}${reason}`);
+
+        if (result.status === 'ok') {
+          appliedCount++;
+          await randomDelay(delayMinMs, delayMaxMs);
+        } else {
+          await randomDelay(1000, 2800);
+        }
       }
 
-      if (shouldPersistVacancy(result)) {
-        appliedIds.add(item.id);
+      console.log(
+        `Страница ${pageIndex + 1} завершена. Откликов за сессию: ${appliedCount}/${maxApplications}`
+      );
+
+      if (pageIndex + 1 >= maxPages) {
+        break;
       }
 
-      const reason = result.reason ? ` (${result.reason})` : '';
-      console.log(`  [${i + 1}/${items.length}] ${result.status} — ${item.id}${reason}`);
-
-      if (result.status === 'ok') {
-        appliedCount++;
-        await randomDelay(delayMinMs, delayMaxMs);
-      } else {
-        await randomDelay(800, 2000);
+      if (appliedCount >= maxApplications) {
+        break;
       }
+
+      const hasNext = await hasNextSearchPage(searchPage);
+      if (!hasNext) {
+        console.log('В выдаче больше нет страниц.');
+        break;
+      }
+
+      console.log(`\n→ Переход на страницу ${pageIndex + 2}...`);
+      await randomDelay(delayMinMs, delayMaxMs);
     }
 
-    console.log(
-      `Страница ${pageIndex + 1} завершена. Откликов за сессию: ${appliedCount}/${maxApplications}`
-    );
+    saveJson(appliedDbPath, { ids: [...appliedIds], updatedAt: new Date().toISOString() });
 
-    if (pageIndex + 1 >= maxPages) {
-      break;
-    }
-
-    if (appliedCount >= maxApplications) {
-      break;
-    }
-
-    const hasNext = await hasNextSearchPage(searchPage);
-    if (!hasNext) {
-      console.log('В выдаче больше нет страниц.');
-      break;
-    }
-
-    console.log(`\n→ Переход на страницу ${pageIndex + 2}...`);
-    await randomDelay(delayMinMs, delayMaxMs);
+    console.log(`\nГотово. Новых откликов за сессию: ${appliedCount}`);
+    console.log(`Всего в базе: ${appliedIds.size}`);
+  } finally {
+    await closePersistentBrowser(context);
   }
-
-  saveJson(appliedDbPath, { ids: [...appliedIds], updatedAt: new Date().toISOString() });
-
-  console.log(`\nГотово. Новых откликов за сессию: ${appliedCount}`);
-  console.log(`Всего в базе: ${appliedIds.size}`);
-
-  await context.close();
-  await browser.close();
 }
 
-/** HH: первая страница без page, вторая page=1, третья page=2 (нумерация с 0) */
 function buildSearchPageUrl(searchUrl, pageIndex) {
   const u = new URL(searchUrl);
   if (pageIndex <= 0) {
@@ -340,7 +362,7 @@ async function openSearchPage(searchPage, url, usePagerClick) {
 
   await searchPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await dismissOverlays(searchPage);
-  await searchPage.waitForTimeout(2000);
+  await searchPage.waitForTimeout(1500 + Math.floor(Math.random() * 1000));
   return true;
 }
 
@@ -362,10 +384,11 @@ async function clickSearchPagerNext(searchPage) {
     return false;
   }
 
+  await humanMicroPause();
   await nextBtn.click();
   await searchPage.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
   await dismissOverlays(searchPage);
-  await searchPage.waitForTimeout(2000);
+  await searchPage.waitForTimeout(1500);
   return true;
 }
 

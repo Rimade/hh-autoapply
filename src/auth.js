@@ -1,7 +1,8 @@
-const path = require('path');
 const readline = require('readline');
-const { chromium } = require('playwright');
-const { ensureDir } = require('./utils');
+const { launchPersistentBrowser, closePersistentBrowser, isProfileInitialized, resolveUserDataDir } = require('./browser');
+const { assertSafePage } = require('./captcha');
+
+const HH_HOME = 'https://hh.ru/';
 
 function waitForEnter() {
   return new Promise((resolve) => {
@@ -16,11 +17,12 @@ function waitForEnter() {
   });
 }
 
-const HH_HOME = 'https://hh.ru/';
-
 async function isLoggedIn(page) {
   await page.goto(HH_HOME, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);
+  await assertSafePage(page).catch((err) => {
+    if (err.name === 'SafetyStopError') throw err;
+  });
 
   const accountLink = page.locator('[data-qa="mainmenu_applicantProfile"]').first();
   if (await accountLink.isVisible().catch(() => false)) {
@@ -31,41 +33,40 @@ async function isLoggedIn(page) {
   return !(await loginBtn.isVisible().catch(() => false));
 }
 
-async function loginInteractive({ storagePath, headless }) {
-  ensureDir(storagePath);
+async function loginInteractive(config) {
+  const userDataDir = resolveUserDataDir(config.userDataDir);
 
-  const browser = await chromium.launch({
-    headless: headless === 'true',
+  console.log(`Persistent-профиль: ${userDataDir}`);
+  if (!isProfileInitialized(userDataDir) && config.legacyStoragePath) {
+    console.log('Старые cookies будут импортированы при первом запуске (если файл есть).');
+  }
+
+  const context = await launchPersistentBrowser({
+    ...config,
+    headless: false,
     slowMo: 50,
   });
 
-  const context = await browser.newContext({
-    locale: 'ru-RU',
-    timezoneId: 'Europe/Moscow',
-    viewport: { width: 1280, height: 900 },
-  });
+  const pages = context.pages();
+  const page = pages.length > 0 ? pages[0] : await context.newPage();
 
-  const page = await context.newPage();
-
-  console.log('Открой браузер и войди на hh.ru вручную (телефон, почта, OAuth).');
-  console.log('Когда увидишь свой профиль — нажми Enter в этом терминале.\n');
+  console.log('\nВойди на hh.ru вручную (телефон, почта, OAuth).');
+  console.log('Когда увидишь профиль — нажми Enter в терминале.\n');
 
   await page.goto(`${HH_HOME}account/login`, { waitUntil: 'domcontentloaded' });
 
   await waitForEnter();
 
-  if (!(await isLoggedIn(page))) {
-    await context.close();
-    await browser.close();
-    throw new Error('Похоже, вход не выполнен. Попробуй снова: npm run login');
+  try {
+    if (!(await isLoggedIn(page))) {
+      throw new Error('Похоже, вход не выполнен. Попробуй снова: npm run login');
+    }
+
+    console.log('Сессия сохранена в persistent-профиле.');
+    console.log('Готово. Можно запускать: npm run apply');
+  } finally {
+    await closePersistentBrowser(context);
   }
-
-  await context.storageState({ path: storagePath });
-  console.log(`Сессия сохранена: ${path.resolve(storagePath)}`);
-
-  await context.close();
-  await browser.close();
-  console.log('Готово. Можно запускать: npm run apply');
 }
 
 module.exports = {
