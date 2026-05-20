@@ -1,6 +1,20 @@
 const fs = require('fs');
 const path = require('path');
-const { DatabaseSync } = require('node:sqlite');
+let Database;
+try {
+	Database = require('better-sqlite3');
+} catch (err) {
+	if (String(err.message).includes('NODE_MODULE_VERSION')) {
+		console.error(
+			'\nSQLite собран под другую версию Node.js.\n' +
+				`Сейчас: ${process.version}. Выполни в папке проекта:\n\n` +
+				'  npm run fix:sqlite\n\n' +
+				'Или переустанови зависимости той же Node, которой запускаешь apply:\n' +
+				'  npm install\n',
+		);
+	}
+	throw err;
+}
 const { ensureDir } = require('./utils');
 
 const SCHEMA = `
@@ -52,7 +66,7 @@ function migrateSchema(db) {
 
 function openDatabase(dbPath) {
 	ensureDir(dbPath);
-	const db = new DatabaseSync(dbPath);
+	const db = new Database(dbPath);
 	db.exec(SCHEMA);
 	migrateSchema(db);
 	return db;
@@ -148,22 +162,29 @@ function countApplicationsSince(db, sinceIso) {
 	return row?.c || 0;
 }
 
-function checkRateLimits(db, { dailyLimit, hourlyLimit }) {
+function getRateLimitCounts(db) {
 	const now = Date.now();
 	const hourAgo = new Date(now - 60 * 60 * 1000).toISOString();
 	const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
 
-	const hourCount = countApplicationsSince(db, hourAgo);
+	return {
+		hourCount: countApplicationsSince(db, hourAgo),
+		dayCount: countApplicationsSince(db, dayAgo),
+	};
+}
+
+function checkRateLimits(db, { dailyLimit, hourlyLimit }) {
+	const { hourCount, dayCount } = getRateLimitCounts(db);
+
 	if (hourCount >= hourlyLimit) {
-		return { ok: false, reason: 'hourly_limit' };
+		return { ok: false, reason: 'hourly_limit', hourCount, dayCount, hourlyLimit, dailyLimit };
 	}
 
-	const dayCount = countApplicationsSince(db, dayAgo);
 	if (dayCount >= dailyLimit) {
-		return { ok: false, reason: 'daily_limit' };
+		return { ok: false, reason: 'daily_limit', hourCount, dayCount, hourlyLimit, dailyLimit };
 	}
 
-	return { ok: true };
+	return { ok: true, hourCount, dayCount, hourlyLimit, dailyLimit };
 }
 
 function upsertVacancySeen(db, item) {
@@ -267,6 +288,7 @@ module.exports = {
 	canApplyVacancy,
 	canApplyCompany,
 	checkRateLimits,
+	getRateLimitCounts,
 	upsertVacancySeen,
 	recordVacancyResult,
 	setVacancyOutcome,

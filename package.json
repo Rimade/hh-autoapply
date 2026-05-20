@@ -11,13 +11,19 @@
 		"stats": "node index.js stats",
 		"export": "node index.js export",
 		"cohorts": "node index.js cohorts",
-		"insights": "node index.js insights"
+		"insights": "node index.js insights",
+		"fix:sqlite": "npm rebuild better-sqlite3",
+		"postinstall": "npm rebuild better-sqlite3"
 	},
 	"keywords": [],
 	"author": "",
 	"license": "ISC",
 	"type": "commonjs",
+	"engines": {
+		"node": ">=18"
+	},
 	"dependencies": {
+		"better-sqlite3": "^11.10.0",
 		"dotenv": "^17.4.2",
 		"playwright": "^1.60.0"
 	}

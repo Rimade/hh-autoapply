@@ -17,13 +17,28 @@ browser identity (persistent profile + fixed fingerprint)
 ```bash
 npm install
 npx playwright install chromium
+```
+
+Нужен **Node.js 18+** (рекомендуется **20 LTS**). Проект использует `better-sqlite3` — его нужно собирать **той же** версией Node, которой запускаешь команды.
+
+Если ошибка `NODE_MODULE_VERSION` / `compiled against a different Node.js version`:
+
+```bash
+node -v          # запомни версию (например v20.19.2)
+npm run fix:sqlite
+npm run apply
+```
+
+После смены Node (nvm/fnm) снова: `npm install` или `npm run fix:sqlite`.
 
 cp .env.example .env
 cp cover-letter.example.txt cover-letter.txt
+
 # отредактируй HH_SEARCH_URL и письмо в .env / cover-letter.txt
 
 npm run login    # один раз или после 403/503
 npm run apply
+
 ```
 
 ## Ежедневный цикл (достаточно для самостоятельной работы)

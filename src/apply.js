@@ -27,6 +27,7 @@ const {
 	upsertVacancySeen,
 	recordVacancyResult,
 	getStats,
+	getRateLimitCounts,
 } = require('./db');
 const { shouldApplyByScore } = require('./score');
 const { canApplyByDiversity } = require('./diversity');
@@ -267,6 +268,11 @@ async function runAutoApply(config) {
 		);
 	}
 
+	const limits = getRateLimitCounts(db);
+	console.log(
+		`Лимиты: за час ${limits.hourCount}/${hourlyLimit}, за сутки ${limits.dayCount}/${dailyLimit} (уже в базе)`,
+	);
+
 	const context = await launchPersistentBrowser({
 		userDataDir,
 		legacyStoragePath,
@@ -328,7 +334,17 @@ async function runAutoApply(config) {
 
 				const rateCheck = checkRateLimits(db, { dailyLimit, hourlyLimit });
 				if (!rateCheck.ok) {
-					console.log(`  Лимит: ${rateCheck.reason}. Остановка на сегодня.`);
+					if (rateCheck.reason === 'hourly_limit') {
+						console.log(
+							`  Лимит часа: ${rateCheck.hourCount}/${rateCheck.hourlyLimit} откликов за последние 60 мин.`,
+						);
+						console.log('  Подожди ~1 ч или увеличь HOURLY_LIMIT в .env');
+					} else {
+						console.log(
+							`  Лимит суток: ${rateCheck.dayCount}/${rateCheck.dailyLimit} откликов за 24 ч.`,
+						);
+						console.log('  Продолжишь завтра или подними DAILY_LIMIT в .env');
+					}
 					stopRun = true;
 					break;
 				}
@@ -425,7 +441,7 @@ async function runAutoApply(config) {
 				break;
 			}
 
-			if (appliedCount >= maxApplications) {
+			if (appliedCount >= maxApplications || stopRun) {
 				break;
 			}
 
